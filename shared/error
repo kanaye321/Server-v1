@@ -1,63 +1,612 @@
-Error:   Failed to scan for dependencies from entries:
-  C:/SRPH MIS Inventory Server/PORT 5000/11/Server-v1/client/index.html
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDate } from "@/lib/utils";
+import {
+  DatabaseIcon,
+  DownloadIcon,
+  UploadIcon,
+  HardDriveIcon,
+  CheckCircleIcon,
+  AlertCircleIcon,
+  RefreshCwIcon,
+  ClockIcon,
+  SettingsIcon,
+  PlayIcon,
+  PauseIcon,
+  TrashIcon,
+} from "lucide-react";
 
-  X [ERROR] Unexpected closing "old_str" tag does not match opening "TabsContent" tag
+interface DatabaseStatus {
+  connected: boolean;
+  size: string;
+  tables: number;
+  lastBackup: string | null;
+  backupCount: number;
+}
 
-    client/src/pages/admin/database.tsx:635:18:
-      635 │           </div></old_str>
-          │                   ~~~~~~~
-          ╵                   TabsContent
+interface BackupItem {
+  id: string;
+  filename: string;
+  description: string;
+  size: string;
+  created: string;
+}
 
-  The opening "TabsContent" tag is here:
+interface MaintenanceSettings {
+  enabled: boolean;
+  schedule: string;
+  time: string;
+  tasks: string[];
+}
 
-    client/src/pages/admin/database.tsx:591:9:
-      591 │         <TabsContent value="backup">
-          ╵          ~~~~~~~~~~~
+export default function Database() {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("overview");
+  const [isCreateBackupDialogOpen, setIsCreateBackupDialogOpen] = useState(false);
+  const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
+  const [selectedBackup, setSelectedBackup] = useState<BackupItem | null>(null);
+  const [backupDescription, setBackupDescription] = useState("");
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings>({
+    enabled: false,
+    schedule: "daily",
+    time: "12:00",
+    tasks: ["backup", "optimize", "cleanup"]
+  });
 
+  // Fetch database status
+  const { data: dbStatus, isLoading: statusLoading } = useQuery({
+    queryKey: ['/api/admin/database/status'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/database/status');
+      if (!response.ok) throw new Error('Failed to fetch database status');
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
-X [ERROR] Unexpected closing "TabsContent" tag does not match opening "Tabs" tag
+  // Fetch backups
+  const { data: backups = [], isLoading: backupsLoading } = useQuery({
+    queryKey: ['/api/admin/database/backups'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/database/backups');
+      if (!response.ok) throw new Error('Failed to fetch backups');
+      return response.json();
+    },
+  });
 
-    client/src/pages/admin/database.tsx:741:10:
-      741 │         </TabsContent>
-          │           ~~~~~~~~~~~
-          ╵           Tabs
+  // Create backup mutation
+  const createBackupMutation = useMutation({
+    mutationFn: async (description: string) => {
+      return apiRequest('POST', '/api/admin/database/backup', { description });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Backup created",
+        description: "Database backup has been created successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/database/backups'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/database/status'] });
+      setIsCreateBackupDialogOpen(false);
+      setBackupDescription("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Backup failed",
+        description: error.message || "Failed to create database backup.",
+        variant: "destructive",
+      });
+    }
+  });
 
-  The opening "Tabs" tag is here:
+  // Restore backup mutation
+  const restoreMutation = useMutation({
+    mutationFn: async (backupId: string) => {
+      return apiRequest('POST', `/api/admin/database/restore/${backupId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Database restored",
+        description: "Database has been restored successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/database/status'] });
+      setIsRestoreDialogOpen(false);
+      setSelectedBackup(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Restore failed",
+        description: error.message || "Failed to restore database.",
+        variant: "destructive",
+      });
+    }
+  });
 
-    client/src/pages/admin/database.tsx:411:7:
-      411 │       <Tabs value={activeTab} onValueChange={setActiveTab} classN...
-          ╵        ~~~~
+  // Delete backup mutation
+  const deleteBackupMutation = useMutation({
+    mutationFn: async (backupId: string) => {
+      return apiRequest('DELETE', `/api/admin/database/backups/${backupId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Backup deleted",
+        description: "Backup has been deleted successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/database/backups'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete failed",
+        description: error.message || "Failed to delete backup.",
+        variant: "destructive",
+      });
+    }
+  });
 
+  // Maintenance settings mutation
+  const updateMaintenanceMutation = useMutation({
+    mutationFn: async (settings: MaintenanceSettings) => {
+      return apiRequest('PUT', '/api/admin/database/maintenance', settings);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Settings updated",
+        description: "Maintenance settings have been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update maintenance settings.",
+        variant: "destructive",
+      });
+    }
+  });
 
-X [ERROR] Unexpected closing "Tabs" tag does not match opening "div" tag
+  const handleCreateBackup = () => {
+    createBackupMutation.mutate(backupDescription);
+  };
 
-    client/src/pages/admin/database.tsx:858:8:
-      858 │       </Tabs>
-          │         ~~~~
-          ╵         div
+  const handleRestoreBackup = () => {
+    if (selectedBackup) {
+      restoreMutation.mutate(selectedBackup.id);
+    }
+  };
 
-  The opening "div" tag is here:
+  const handleDeleteBackup = (backup: BackupItem) => {
+    if (confirm(`Are you sure you want to delete backup "${backup.filename}"? This action cannot be undone.`)) {
+      deleteBackupMutation.mutate(backup.id);
+    }
+  };
 
-    client/src/pages/admin/database.tsx:391:5:
-      391 │     <div className="space-y-4 sm:space-y-6">
-          ╵      ~~~
+  const handleMaintenanceSettingsChange = (field: keyof MaintenanceSettings, value: any) => {
+    const newSettings = { ...maintenanceSettings, [field]: value };
+    setMaintenanceSettings(newSettings);
+    updateMaintenanceMutation.mutate(newSettings);
+  };
 
+  if (statusLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
-X [ERROR] Expected ")" but found "{"
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-800">Database Management</h1>
+          <p className="text-sm text-gray-600">Monitor database status, create backups, and manage maintenance</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={dbStatus?.connected ? "default" : "destructive"}>
+            {dbStatus?.connected ? "Connected" : "Disconnected"}
+          </Badge>
+        </div>
+      </div>
 
-    client/src/pages/admin/database.tsx:860:6:
-      860 │       {/* Create Backup Dialog */}
-          │       ^
-          ╵       )
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="backup">Database Backup</TabsTrigger>
+          <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
+        </TabsList>
 
+        <TabsContent value="overview" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Database Status</CardTitle>
+                <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {dbStatus?.connected ? "Online" : "Offline"}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {dbStatus?.connected ? "Database is operational" : "Check connection"}
+                </p>
+              </CardContent>
+            </Card>
 
-    at failureErrorWithLog (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:1472:15)
-    at C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:945:25
-    at runOnEndCallbacks (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:1315:45)
-    at buildResponseToResult (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:943:7)
-    at C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:955:9
-    at new Promise (<anonymous>)
-    at requestCallbacks.on-end (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:954:54)
-    at handleRequest (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:647:17)
-    at handleIncomingPacket (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:672:7)
-    at Socket.readFromStdout (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:600:7)
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Database Size</CardTitle>
+                <HardDriveIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{dbStatus?.size || "Unknown"}</div>
+                <p className="text-xs text-muted-foreground">
+                  {dbStatus?.tables || 0} tables
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Last Backup</CardTitle>
+                <ClockIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {dbStatus?.lastBackup ? formatDate(dbStatus.lastBackup) : "Never"}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {dbStatus?.backupCount || 0} total backups
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Health Status</CardTitle>
+                {dbStatus?.connected ? (
+                  <CheckCircleIcon className="h-4 w-4 text-green-500" />
+                ) : (
+                  <AlertCircleIcon className="h-4 w-4 text-red-500" />
+                )}
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {dbStatus?.connected ? "Healthy" : "Issues"}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {dbStatus?.connected ? "All systems operational" : "Requires attention"}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Database Operations</CardTitle>
+              <CardDescription>
+                Perform maintenance operations on the database
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <RefreshCwIcon className="h-4 w-4" />
+                  Optimize Database
+                </Button>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <DatabaseIcon className="h-4 w-4" />
+                  Check Integrity
+                </Button>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <TrashIcon className="h-4 w-4" />
+                  Clean Logs
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="backup" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-medium">Database Backup</h3>
+              <p className="text-sm text-gray-600">Create and manage database backups</p>
+            </div>
+            <Dialog open={isCreateBackupDialogOpen} onOpenChange={setIsCreateBackupDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <DownloadIcon className="mr-2 h-4 w-4" />
+                  Create New Backup
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Database Backup</DialogTitle>
+                  <DialogDescription>
+                    Create a complete backup of all database tables and data
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div>
+                    <Label htmlFor="backup-description">Backup Description</Label>
+                    <Textarea
+                      id="backup-description"
+                      placeholder="Enter a description for this backup..."
+                      value={backupDescription}
+                      onChange={(e) => setBackupDescription(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsCreateBackupDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCreateBackup}
+                    disabled={createBackupMutation.isPending}
+                  >
+                    {createBackupMutation.isPending ? "Creating..." : "Create Backup"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Restore Database</CardTitle>
+              <CardDescription>
+                Select a backup to restore the database
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Dialog open={isRestoreDialogOpen} onOpenChange={setIsRestoreDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <UploadIcon className="mr-2 h-4 w-4" />
+                    Restore Database
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Restore Database</DialogTitle>
+                    <DialogDescription>
+                      ⚠️ Warning: This will replace all current data with the selected backup.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div>
+                      <Label>Select Backup</Label>
+                      <Select onValueChange={(value) => {
+                        const backup = backups.find(b => b.id === value);
+                        setSelectedBackup(backup || null);
+                      }}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Choose a backup to restore" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {backups.map((backup) => (
+                            <SelectItem key={backup.id} value={backup.id}>
+                              {backup.filename} ({formatDate(backup.created)})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {selectedBackup && (
+                      <div className="p-3 border rounded-md bg-amber-50 border-amber-200">
+                        <p className="text-sm text-amber-800">
+                          <strong>Selected:</strong> {selectedBackup.filename}<br />
+                          <strong>Size:</strong> {selectedBackup.size}<br />
+                          <strong>Created:</strong> {formatDate(selectedBackup.created)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsRestoreDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleRestoreBackup}
+                      disabled={!selectedBackup || restoreMutation.isPending}
+                    >
+                      {restoreMutation.isPending ? "Restoring..." : "Restore Database"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Available Backups</CardTitle>
+              <CardDescription>
+                Manage your database backups
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {backupsLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+                </div>
+              ) : backups.length > 0 ? (
+                <div className="space-y-2">
+                  {backups.map((backup) => (
+                    <div key={backup.id} className="flex items-center justify-between p-3 border rounded-md">
+                      <div>
+                        <p className="font-medium">{backup.filename}</p>
+                        <p className="text-sm text-gray-500">
+                          {backup.description} • {backup.size} • {formatDate(backup.created)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedBackup(backup);
+                            setIsRestoreDialogOpen(true);
+                          }}
+                        >
+                          Restore
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-500 border-red-200 hover:text-red-600 hover:bg-red-50"
+                          onClick={() => handleDeleteBackup(backup)}
+                          disabled={deleteBackupMutation.isPending}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No backups available</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="maintenance" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Automatic Database Maintenance</CardTitle>
+              <CardDescription>
+                Configure automated maintenance tasks to keep your database optimized
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium">Enable Automatic Maintenance</h3>
+                  <p className="text-sm text-gray-500">
+                    Automatically perform maintenance tasks on a schedule
+                  </p>
+                </div>
+                <Switch
+                  checked={maintenanceSettings.enabled}
+                  onCheckedChange={(checked) =>
+                    handleMaintenanceSettingsChange('enabled', checked)
+                  }
+                />
+              </div>
+
+              {maintenanceSettings.enabled && (
+                <div className="space-y-4 p-4 border rounded-md bg-gray-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="schedule">Schedule</Label>
+                      <Select
+                        value={maintenanceSettings.schedule}
+                        onValueChange={(value) =>
+                          handleMaintenanceSettingsChange('schedule', value)
+                        }
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Daily</SelectItem>
+                          <SelectItem value="weekly">Weekly</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="time">Time (24-hour format)</Label>
+                      <Input
+                        id="time"
+                        type="time"
+                        value={maintenanceSettings.time}
+                        onChange={(e) =>
+                          handleMaintenanceSettingsChange('time', e.target.value)
+                        }
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Maintenance Tasks</Label>
+                    <div className="mt-2 space-y-2">
+                      {[
+                        { id: 'backup', label: 'Create automatic backup' },
+                        { id: 'optimize', label: 'Optimize database tables' },
+                        { id: 'cleanup', label: 'Clean up old logs' }
+                      ].map((task) => (
+                        <div key={task.id} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={task.id}
+                            checked={maintenanceSettings.tasks.includes(task.id)}
+                            onChange={(e) => {
+                              const tasks = e.target.checked
+                                ? [...maintenanceSettings.tasks, task.id]
+                                : maintenanceSettings.tasks.filter(t => t !== task.id);
+                              handleMaintenanceSettingsChange('tasks', tasks);
+                            }}
+                            className="rounded border-gray-300"
+                          />
+                          <Label htmlFor={task.id} className="text-sm">
+                            {task.label}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Manual Maintenance</CardTitle>
+              <CardDescription>
+                Run maintenance tasks manually
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <RefreshCwIcon className="h-4 w-4" />
+                  Optimize Tables
+                </Button>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <DatabaseIcon className="h-4 w-4" />
+                  Rebuild Indexes
+                </Button>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <TrashIcon className="h-4 w-4" />
+                  Clean Old Logs
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
