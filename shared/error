@@ -1,0 +1,63 @@
+Error:   Failed to scan for dependencies from entries:
+  C:/SRPH MIS Inventory Server/PORT 5000/11/Server-v1/client/index.html
+
+  X [ERROR] Unexpected closing "old_str" tag does not match opening "TabsContent" tag
+
+    client/src/pages/admin/database.tsx:635:18:
+      635 │           </div></old_str>
+          │                   ~~~~~~~
+          ╵                   TabsContent
+
+  The opening "TabsContent" tag is here:
+
+    client/src/pages/admin/database.tsx:591:9:
+      591 │         <TabsContent value="backup">
+          ╵          ~~~~~~~~~~~
+
+
+X [ERROR] Unexpected closing "TabsContent" tag does not match opening "Tabs" tag
+
+    client/src/pages/admin/database.tsx:741:10:
+      741 │         </TabsContent>
+          │           ~~~~~~~~~~~
+          ╵           Tabs
+
+  The opening "Tabs" tag is here:
+
+    client/src/pages/admin/database.tsx:411:7:
+      411 │       <Tabs value={activeTab} onValueChange={setActiveTab} classN...
+          ╵        ~~~~
+
+
+X [ERROR] Unexpected closing "Tabs" tag does not match opening "div" tag
+
+    client/src/pages/admin/database.tsx:858:8:
+      858 │       </Tabs>
+          │         ~~~~
+          ╵         div
+
+  The opening "div" tag is here:
+
+    client/src/pages/admin/database.tsx:391:5:
+      391 │     <div className="space-y-4 sm:space-y-6">
+          ╵      ~~~
+
+
+X [ERROR] Expected ")" but found "{"
+
+    client/src/pages/admin/database.tsx:860:6:
+      860 │       {/* Create Backup Dialog */}
+          │       ^
+          ╵       )
+
+
+    at failureErrorWithLog (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:943:7)
+    at C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:955:9
+    at new Promise (<anonymous>)
+    at requestCallbacks.on-end (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:954:54)
+    at handleRequest (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:647:17)
+    at handleIncomingPacket (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:672:7)
+    at Socket.readFromStdout (C:\SRPH MIS Inventory Server\PORT 5000\11\Server-v1\node_modules\vite\node_modules\esbuild\lib\main.js:600:7)
