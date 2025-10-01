@@ -1,23 +1,22 @@
-> cross-env NODE_ENV=development tsx server/index.ts
-
-
-node:internal/modules/run_main:122
-    triggerUncaughtException(
-    ^
-Error [TransformError]: Transform failed with 2 errors:
-C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\server\vite.ts:80:16: ERROR: Multiple exports with the same name "serveStatic"
-C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\server\vite.ts:80:16: ERROR: The symbol "serveStatic" has already been declared
-    at failureErrorWithLog (C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\node_modules\tsx\node_modules\esbuild\lib\main.js:1476:15)
-    at C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\node_modules\tsx\node_modules\esbuild\lib\main.js:755:50
-    at responseCallbacks.<computed> (C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\node_modules\tsx\node_modules\esbuild\lib\main.js:622:9)
-    at handleIncomingPacket (C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\node_modules\tsx\node_modules\esbuild\lib\main.js:677:12)
-    at Socket.readFromStdout (C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1\node_modules\tsx\node_modules\esbuild\lib\main.js:600:7)
-    at Socket.emit (node:events:518:28)
-    at addChunk (node:internal/streams/readable:561:12)
-    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
-    at Readable.push (node:internal/streams/readable:392:5)
-    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-
-Node.js v22.15.0
-
-C:\SRPH MIS Inventory Server\PORT 5000\14\Server-v1>
+Testing Zabbix connection to: http://107.105.221.92/zabbix/api_jsonrpc.php
+Final Zabbix API URL: http://107.105.221.92/zabbix/api_jsonrpc.php
+Attempting Zabbix authentication...
+Auth request body: {
+  "jsonrpc": "2.0",
+  "method": "apiinfo.version",
+  "params": {},
+  "id": 1
+}
+Auth response status: 200
+Auth response received successfully
+Zabbix auth error: {
+  code: -32602,
+  message: 'Invalid params.',
+  data: 'The "apiinfo.version" method must be called without authorization header.'
+}
+Fetch error: Error: Invalid params.
+    at <anonymous> (C:\SRPH MIS Inventory Server\PORT 5000\15\Server-v1\server\routes.ts:3783:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Zabbix connection test failed: Error: Invalid params.
+    at <anonymous> (C:\SRPH MIS Inventory Server\PORT 5000\15\Server-v1\server\routes.ts:3783:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
