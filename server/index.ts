@@ -1,10 +1,12 @@
 import express, { type Request, Response, NextFunction } from "express";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { networkInterfaces } from "os";
 import { runMigrations } from "./migrate";
 import { storage } from "./storage";
 import { DatabaseStorage, initializeDatabase } from "./database-storage";
+import { externalLogger } from "./logger";
 
 const app = express();
 // Parse JSON and URL-encoded bodies with increased size limits for CSV imports
@@ -35,6 +37,23 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+      
+      // Enhanced external API logging with more details
+      try {
+        externalLogger.logApiRequest(
+          req.method, 
+          path, 
+          res.statusCode, 
+          duration, 
+          capturedJsonResponse,
+          undefined, // userId - would need to extract from req.user if available
+          undefined, // username - would need to extract from req.user if available
+          req.ip || req.connection.remoteAddress,
+          req.get('User-Agent')
+        );
+      } catch (logError) {
+        console.error('Failed to log API request externally:', logError);
+      }
     }
   });
 
@@ -161,63 +180,115 @@ app.use((req, res, next) => {
           }
         });
         console.log(`✅ Default admin user created in ${usingDatabase ? 'database' : 'memory'} storage: username=admin, password=admin123`);
+        externalLogger.logSystem('user_creation', { username: 'admin', storage: usingDatabase ? 'database' : 'memory' });
       } else {
         console.log(`✅ Default admin user already exists in ${usingDatabase ? 'database' : 'memory'} storage`);
       }
     } catch (initError) {
       console.error("❌ Failed to initialize default admin user:", initError);
+      externalLogger.logSystem('user_creation_error', { error: initError.message });
     }
   }, 500);
 })();
 
 async function startServer() {
-  const server = await registerRoutes(app);
+  const server = createServer(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+  // Register routes before starting server
+  const httpServer = await registerRoutes(app);
 
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  // Setup Vite middleware for development
+  if (process.env.NODE_ENV !== 'production') {
     await setupVite(app, server);
   } else {
+    // Serve static files in production
     serveStatic(app);
   }
 
-  // Get the local machine's IP address
-  function getLocalIP() {
-    const interfaces = networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      for (const net of interfaces[name] || []) {
-        // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-        if (net.family === 'IPv4' && !net.internal) {
-          return net.address;
-        }
-      }
-    }
-    return '127.0.0.1'; // fallback
-  }
-
-  // Serve the app on port 5000 for Replit
-  const PORT = 5000;
-  const host = "0.0.0.0";
-  const localIP = getLocalIP();
-
-  server.listen({
+  // Log server startup
+  externalLogger.logSystem('server_startup', {
     port: PORT,
-    host,
-  }, () => {
-    log(`serving on port ${PORT}`);
-    console.log(`\n🚀 SRPH-MIS is running at: http://0.0.0.0:${PORT}`);
-    console.log(`💻 Access your app through Replit's webview`);
-    console.log(`🌐 Network access: http://${localIP}:${PORT}\n`);
+    databaseType: process.env.DATABASE_URL ? "PostgreSQL" : "Memory",
+    environment: process.env.NODE_ENV || 'development',
+    startupTime: new Date().toISOString()
   });
+
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  console.log(`📊 Database: ${process.env.DATABASE_URL ? "PostgreSQL" : "Memory"}`);
+  console.log(`📝 Logs directory: logs/`);
+
+  return server.listen(PORT, "0.0.0.0");
 }
 
-startServer();
+// Get the local machine's IP address
+function getLocalIP() {
+  const interfaces = networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return '127.0.0.1'; // fallback
+}
+
+// Serve the app on port 5000 for Replit
+const PORT = 5000;
+const host = "0.0.0.0";
+const localIP = getLocalIP();
+
+startServer().then((server) => {
+  log(`serving on port ${PORT}`);
+  console.log(`\n🚀 SRPH-MIS is running at: http://0.0.0.0:${PORT}`);
+  console.log(`💻 Access your app through Replit's webview`);
+  console.log(`🌐 Network access: http://${localIP}:${PORT}\n`);
+  console.log(`📝 External logs are being written to: logs/`);
+  
+  // Log server startup
+  externalLogger.logLifecycle('startup', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    nodeVersion: process.version,
+    platform: process.platform
+  });
+
+  // Set up heartbeat logging every 5 minutes
+  const heartbeatInterval = setInterval(() => {
+    try {
+      externalLogger.logHeartbeat({
+        activeConnections: server.listening ? 'active' : 'inactive',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Heartbeat logging failed:', error);
+    }
+  }, 5 * 60 * 1000); // Every 5 minutes
+
+  // Handle process termination
+  process.on('SIGTERM', () => {
+    externalLogger.logLifecycle('shutdown', { reason: 'SIGTERM', timestamp: new Date().toISOString() });
+    clearInterval(heartbeatInterval);
+  });
+
+  process.on('SIGINT', () => {
+    externalLogger.logLifecycle('shutdown', { reason: 'SIGINT', timestamp: new Date().toISOString() });
+    clearInterval(heartbeatInterval);
+  });
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    externalLogger.logCritical('Uncaught Exception', error, 'process');
+    console.error('Uncaught Exception:', error);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    externalLogger.logCritical('Unhandled Rejection', reason instanceof Error ? reason : new Error(String(reason)), 'promise');
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
+}).catch((error) => {
+  console.error('Failed to start server:', error);
+  externalLogger.logCritical('Server startup failed', error, 'startup');
+});
